@@ -401,7 +401,7 @@ class Ticket(AssemblaObject):
             if components:
                 return components[0]
                 
-    @property
+    @assembla_filter
     def comments(self):
         """
         The Comments associated to this Ticket
