@@ -400,6 +400,23 @@ class Ticket(AssemblaObject):
             )
             if components:
                 return components[0]
+                
+    @assembla_filter
+    def comments(self):
+        """
+        The Comments associated to this Ticket
+        """
+        
+        #I did not use _build_rel_path because Ticket don't have rel_path
+        rel_path = 'spaces/%s/tickets/%s/ticket_comments' % (self.space['id'], self['id'])
+        return self.api._get_json(
+            Comment,
+            space=self.space,
+            rel_path=rel_path,
+            extra_params={
+                'per_page': 20
+            }
+        )        
 
     def write(self):
         try:
@@ -431,6 +448,9 @@ class Ticket(AssemblaObject):
             space=self.space,
             rel_path=self.space._build_rel_path('tickets'),
         )
+
+class Comment(AssemblaObject):
+    pass
 
 class User(AssemblaObject):
     @assembla_filter
