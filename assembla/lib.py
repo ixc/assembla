@@ -2,6 +2,8 @@ from functools import wraps
 
 
 class AssemblaObject(object):
+    can_paginate = True
+
     """
     Proxies getitem calls (eg: `instance['id']`) to a dictionary `instance.data['id']`.
     """

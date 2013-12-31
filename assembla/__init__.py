@@ -39,14 +39,21 @@ class API(object):
         """
         return self._get_json(Space)
 
-    def _get_json(self, model, space=None, rel_path=None, extra_params=None):
+    def user(self, id):
+        """
+        Records for a given user available
+        """
+        return self._get_json(model=User, rel_path="%s/%s" % (User.rel_path, id), single=True)
+
+
+    def _get_json(self, model, space=None, rel_path=None, extra_params=None, single=False):
         """
         Base level method which does all the work of hitting the API
         """
 
         # Only API.spaces and API.event should not provide
         # the `space argument
-        if space is None and model not in (Space, Event):
+        if space is None and model not in (Space, Event, User):
             raise Exception(
                 'In general, `API._get_json` should always '
                 'be called with a `space` argument.'
@@ -56,7 +63,8 @@ class API(object):
             extra_params = {}
 
         # Handle pagination for requests carrying large amounts of data
-        extra_params['page'] = extra_params.get('page', 1)
+        if model.can_paginate:
+            extra_params['page'] = extra_params.get('page', 1)
 
         # Generate the url to hit
         url = '{0}/{1}/{2}.json?{3}'.format(
@@ -83,26 +91,34 @@ class API(object):
                 self.cache[url] = response
 
         if response.status_code == 200:  # OK
-            results = []
-            for json in response.json():
-                instance=model(data=json)
+            if single:
+                instance = model(data=response.json())
                 instance.api = self
                 if space:
                     instance.space = space
-                results.append(instance)
-            # If the number of results is divisible by the maximum limit per
-            # page, then we need to fetch the next page
-            per_page = extra_params.get('per_page', None)
-            if (
-                per_page
-                and len(results)
-                and per_page % len(results) == 0
-            ):
-                extra_params['page'] = extra_params['page'] + 1
-                results = results + self._get_json(model, space, rel_path, extra_params)
-            return results
+                return instance
+            else:
+                results = []
+                for json in response.json():
+                    instance=model(data=json)
+                    instance.api = self
+                    if space:
+                        instance.space = space
+                    results.append(instance)
+
+                # if the #results on this page == limit per page, then fetch the next page to see if there's any more results
+                per_page = extra_params.get('per_page', 10) #10 = assembla's default for tickets, ticket comments. Does this vary by model?
+                if len(results) == per_page and model.can_paginate:
+                    extra_params['page'] = extra_params['page'] + 1
+                    next_results = self._get_json(model, space, rel_path, extra_params)
+                    results = results + next_results
+
+                return results
         elif response.status_code == 204:  # No Content
-            return []
+            if single:
+                return {}
+            else:
+                return []
         else:  # Most likely a 404 Not Found
             raise Exception(
                 'Code {0} returned from `{1}`. Response text: "{2}".'.format(
@@ -349,6 +365,7 @@ class Space(AssemblaObject):
 class Component(AssemblaObject):
     pass
 
+
 class Milestone(AssemblaObject):
     @assembla_filter
     def tickets(self):
@@ -362,6 +379,7 @@ class Milestone(AssemblaObject):
 
 
 class Ticket(AssemblaObject):
+
     @property
     def milestone(self):
         """
@@ -408,13 +426,13 @@ class Ticket(AssemblaObject):
         """
         
         #I did not use _build_rel_path because Ticket don't have rel_path
-        rel_path = 'spaces/%s/tickets/%s/ticket_comments' % (self.space['id'], self['id'])
+        rel_path = 'spaces/%s/tickets/%s/ticket_comments' % (self.space['id'], self['number'])
         return self.api._get_json(
             Comment,
             space=self.space,
             rel_path=rel_path,
             extra_params={
-                'per_page': 20
+                'per_page': 1000
             }
         )        
 
@@ -449,10 +467,15 @@ class Ticket(AssemblaObject):
             rel_path=self.space._build_rel_path('tickets'),
         )
 
+
 class Comment(AssemblaObject):
     pass
 
+
 class User(AssemblaObject):
+    rel_path = "users"
+    can_paginate = False
+
     @assembla_filter
     def tickets(self):
         """
