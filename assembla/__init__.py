@@ -1,10 +1,32 @@
 import urllib
 import requests
 import json
+import datetime
 from assembla.lib import AssemblaObject, assembla_filter
 import settings
+import time
 
 __VERSION__ = '2.1.1'
+
+
+
+requestcount = 0
+
+def ratelimited(maxPerSecond):
+    minInterval = 1.0 / float(maxPerSecond)
+    def decorate(func):
+        lastTimeCalled = [0.0]
+        def rateLimitedFunction(*args,**kargs):
+            elapsed = time.clock() - lastTimeCalled[0]
+            leftToWait = minInterval - elapsed
+            if leftToWait>0:
+                time.sleep(leftToWait)
+            ret = func(*args,**kargs)
+            lastTimeCalled[0] = time.clock()
+            return ret
+        return rateLimitedFunction
+    return decorate
+
 
 class API(object):
     cache_responses = False
@@ -45,7 +67,7 @@ class API(object):
         """
         return self._get_json(model=User, rel_path="%s/%s" % (User.rel_path, id), single=True)
 
-
+    # @ratelimited(0.5)
     def _get_json(self, model, space=None, rel_path=None, extra_params=None, single=False):
         """
         Base level method which does all the work of hitting the API
@@ -79,16 +101,27 @@ class API(object):
             response = self.cache[url]
         else:
             # Fetch the data
-            response = requests.get(
-                url=url,
-                headers={
-                    'X-Api-Key': self.key,
-                    'X-Api-Secret': self.secret,
-                },
-            )
-            # If the cache is being used, update it
-            if self.cache_responses:
-                self.cache[url] = response
+            try:
+                global requestcount
+                requestcount += 1
+                print "Request %s" % requestcount
+                headers = {'X-Api-Key': self.key, 'X-Api-Secret': self.secret}
+                response = requests.get(url=url, headers=headers)
+                # If the cache is being used, update it
+                if self.cache_responses:
+                    self.cache[url] = response
+            except requests.ConnectionError, e:
+                print '\033[91m' + "Request to %s failed - skipping." % url + '\033[0m'
+                print unicode(datetime.datetime.now())
+                print e
+
+                import pdb; pdb.set_trace()
+
+                if single:
+                    return {}
+                else:
+                    return []
+
 
         if response.status_code == 200:  # OK
             if single:
